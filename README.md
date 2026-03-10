@@ -2,7 +2,7 @@ Track Ranker Pro
 A professional-grade, lightweight tool for audio submission management. Rank, star, and organize your music tracks across multiple lists with an intuitive drag-and-drop interface.
 
 
-Key Features
+Key Features:
 Local-First Processing: No server uploads; all audio is handled locally via the Web Audio API.
 
 Analytical Waveforms: Automatically generates visual waveforms for every .mp3 or .wav file added.
@@ -16,7 +16,7 @@ Smart Relinking: Easily reconnect audio files to your lists using the "Relink Fo
 Export Ready: Download your rankings as a formatted text file for easy sharing.
 
 
-Keyboard Shortcuts
+Keyboard Shortcuts:
 Space: Play / Pause
 
 Arrow Right: Seek forward 5 seconds
@@ -24,7 +24,7 @@ Arrow Right: Seek forward 5 seconds
 Arrow Left: Seek backward 5 seconds
 
 
-Built With
+Built With:
 HTML5 / CSS3
 
 Vanilla JavaScript
@@ -36,7 +36,7 @@ Web Audio API: For real-time waveform rendering
 Gemini: AI-assisted development and optimization
 
 
-Quick Start
+Quick Start:
 Open the HTML file in any modern web browser.
 
 Drag and drop your audio files anywhere onto the page.
