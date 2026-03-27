@@ -355,11 +355,31 @@
   .song-item.top-3 { border-left-color: var(--bronze); }
   .song-item.top-3 .rank { color: var(--bronze); }
 
+  /* Marquee animation for long titles */
+  @keyframes marquee {
+    0% { transform: translateX(0); }
+    10% { transform: translateX(0); }
+    45% { transform: translateX(var(--marquee-dist)); }
+    55% { transform: translateX(var(--marquee-dist)); }
+    90% { transform: translateX(0); }
+    100% { transform: translateX(0); }
+  }
+  .title-marquee { 
+    display: block; overflow: hidden; 
+  }
+  .title-marquee .title-inner {
+    display: inline-block; white-space: nowrap;
+    animation: marquee 6s linear infinite;
+  }
+
   /* ============================================= */
   /* MOBILE                                         */
   /* ============================================= */
   @media (max-width: 768px) {
-    body { padding: 0 0 60px 0; overscroll-behavior: none; }
+    body { padding: 0 0 60px 0; overscroll-behavior: none; -webkit-user-select: none; user-select: none; }
+    /* Re-enable selection only for text inputs */
+    input[type="text"], input[type="search"], textarea { -webkit-user-select: text !important; user-select: text !important; }
+    
     .top-banner { font-size: 11px; padding: 10px 12px; letter-spacing: 1px; }
 
     .tabs-wrapper { gap: 6px; padding: 10px 8px 0 8px; flex-wrap: nowrap; }
@@ -385,28 +405,33 @@
     .search-input { font-size: 16px; padding: 10px 12px 10px 36px; }
 
     .song-item { flex-wrap: wrap; padding: 10px 8px; gap: 0; align-items: center; }
-    .song-item .drag-handle { padding-right: 4px; touch-action: none; }
-    .song-item .rank { font-size: 14px; min-width: 20px; margin-right: 4px; }
-    .song-item .star-btn { margin-right: 6px; }
+    .song-item .drag-handle { 
+      padding: 10px 6px 10px 2px; touch-action: none; margin: -10px 0 -10px -2px;
+      min-width: 32px; min-height: 44px; display: flex; align-items: center; justify-content: center;
+    }
+    .song-item .rank { 
+      font-size: 14px; min-width: 20px; margin-right: 4px; 
+      user-select: none; -webkit-user-select: none; pointer-events: none;
+    }
+    .song-item .star-btn { margin-right: 10px; padding: 4px; margin-left: 2px; min-width: 30px; min-height: 30px; justify-content: center; }
     .song-item .star-btn svg { width: 18px; height: 18px; }
-    .song-item .play-btn { width: 30px; height: 30px; }
-    .song-item .play-btn svg { width: 14px; height: 14px; }
+    .song-item .play-btn { width: 36px; height: 36px; }
+    .song-item .play-btn svg { width: 18px; height: 18px; }
     .song-item .info { flex-basis: calc(100% - 140px); min-width: 0; margin-left: 8px; }
     .song-item .info input.title { font-size: 13px; }
     .song-item .info input.artist { font-size: 11px; }
 
     .song-item .controls-container { order: 10; flex-basis: 100%; min-width: 0; margin: 8px 0 4px 0; gap: 6px; }
-    .waveform-container { height: 22px; }
+    .waveform-container { height: 32px; }
+    .playhead { height: 200%; top: -50%; } /* Expand touch target vertically */
     .time-display { font-size: 9px; width: 26px; }
 
     .song-item .right-actions { order: 11; min-width: 0; gap: 5px; margin-left: auto; }
-    .track-volume { width: 44px; }
+    .track-volume { width: 60px; height: 20px; padding: 8px 0; } /* Bigger touch target */
     .delete-btn { margin-left: 6px; }
 
     .starred-section { padding: 10px; margin-bottom: 14px; }
     .starred-list { max-height: 90px; }
-
-    .song-list.is-dragging, .song-list.is-dragging * { user-select: none !important; -webkit-user-select: none !important; }
   }
 
   @media (max-width: 400px) {
@@ -552,15 +577,30 @@
   }
 
   async function autoRelinkFromStoredHandle() {
-    if (!window.showDirectoryPicker) return;
-    try {
-      const dirHandle = await loadDirectoryHandle();
-      if (!dirHandle) return;
-      const perm = await dirHandle.queryPermission({ mode: 'read' });
-      if (perm !== 'granted') { const rp = await dirHandle.requestPermission({ mode: 'read' }); if (rp !== 'granted') return; }
-      persistedDirHandle = dirHandle;
-      await relinkFromDirHandle(dirHandle, true);
-    } catch(e) {}
+    // Desktop: use File System Access API
+    if (window.showDirectoryPicker) {
+      try {
+        const dirHandle = await loadDirectoryHandle();
+        if (!dirHandle) return;
+        const perm = await dirHandle.queryPermission({ mode: 'read' });
+        if (perm !== 'granted') { const rp = await dirHandle.requestPermission({ mode: 'read' }); if (rp !== 'granted') return; }
+        persistedDirHandle = dirHandle;
+        await relinkFromDirHandle(dirHandle, true);
+      } catch(e) {}
+    }
+    // Both: try to relink from audioFileCache (files may be cached from previous adds in same session)
+    relinkFromCache();
+  }
+
+  function relinkFromCache() {
+    const items = Array.from(sortableList.querySelectorAll('.song-item'));
+    items.forEach(el => {
+      if (el.dataset.hasAudio) return;
+      const title = el.querySelector('.title').value;
+      const cached = audioFileCache[title];
+      if (cached) setupAudio(el, cached);
+    });
+    updateMissingWarning();
   }
 
   async function relinkFromDirHandle(dirHandle, silent) {
@@ -650,12 +690,19 @@
 
   relinkDirInput.onchange = (e) => {
     const files = e.target.files; let ct = 0;
+    // First pass: cache all audio files
     Array.from(files).forEach(file => {
       if (!file.type.startsWith('audio/') && !file.name.endsWith('.mp3') && !file.name.endsWith('.wav')) return;
-      const cn = file.name.replace(/\.[^/.]+$/, ""); audioFileCache[cn] = file;
-      const items = Array.from(sortableList.querySelectorAll('.song-item'));
-      const ex = items.find(el => el.querySelector('.title').value.toLowerCase() === cn.toLowerCase() && !el.dataset.hasAudio);
-      if (ex) { setupAudio(ex, file); ct++; }
+      const cn = file.name.replace(/\.[^/.]+$/, ""); 
+      audioFileCache[cn] = file;
+    });
+    // Second pass: relink missing items in the current list
+    const items = Array.from(sortableList.querySelectorAll('.song-item'));
+    items.forEach(el => {
+      if (el.dataset.hasAudio) return;
+      const title = el.querySelector('.title').value;
+      const cached = audioFileCache[title];
+      if (cached) { setupAudio(el, cached); ct++; }
     });
     if(ct > 0) alert(`Relinked ${ct} file(s).`); else alert('No missing files matched.');
     e.target.value = ''; updateMissingWarning();
@@ -804,10 +851,55 @@
         <input type="range" class="track-volume" value="${sv}" min="0" max="1" step="0.05" title="Volume">
         <button class="delete-btn" type="button" title="Delete">${svgTrash}</button>
       </div>`;
+
+    // Marquee scroll for long titles on mobile
+    if (isMobile) {
+      const titleInput = li.querySelector('.title');
+      const checkMarquee = () => {
+        requestAnimationFrame(() => {
+          if (titleInput.scrollWidth > titleInput.clientWidth + 5) {
+            const wrapper = document.createElement('div');
+            wrapper.className = 'title-marquee';
+            wrapper.style.width = titleInput.clientWidth + 'px';
+            const inner = document.createElement('span');
+            inner.className = 'title-inner';
+            inner.textContent = titleInput.value;
+            const overflow = titleInput.scrollWidth - titleInput.clientWidth;
+            inner.style.setProperty('--marquee-dist', `-${overflow}px`);
+            wrapper.appendChild(inner);
+            // Show marquee overlay on non-focused state
+            titleInput.parentElement.insertBefore(wrapper, titleInput.nextSibling);
+            titleInput.style.position = 'absolute'; titleInput.style.opacity = '0';
+            wrapper.onclick = () => { wrapper.remove(); titleInput.style.position = ''; titleInput.style.opacity = ''; titleInput.focus(); };
+            titleInput.addEventListener('blur', () => { setTimeout(checkMarquee, 200); }, { once: true });
+          }
+        });
+      };
+      setTimeout(checkMarquee, 300);
+    }
+
     const btn = li.querySelector('.play-btn');
     btn.onclick = () => { if(btn.classList.contains('disabled')) document.getElementById('relinkDirInput').click(); };
     const vol = li.querySelector('.track-volume'), vIcon = li.querySelector('.track-vol-icon');
-    vol.addEventListener('input', (e) => { const v = parseFloat(e.target.value); td.volume = v; if(activeTrackId === td.id && activeAudio) activeAudio.volume = v; if(v==0) vIcon.innerHTML=svgVolMute; else if(v<0.5) vIcon.innerHTML=svgVolLow; else vIcon.innerHTML=svgVolHigh; saveDataOnly(); });
+    
+    // Volume: use both input AND touchmove for mobile responsiveness  
+    const handleVolChange = (e) => { 
+      const v = parseFloat(e.target.value); td.volume = v; 
+      if(activeTrackId === td.id && activeAudio) activeAudio.volume = v; 
+      if(v==0) vIcon.innerHTML=svgVolMute; else if(v<0.5) vIcon.innerHTML=svgVolLow; else vIcon.innerHTML=svgVolHigh; 
+      saveDataOnly(); 
+    };
+    vol.addEventListener('input', handleVolChange);
+    vol.addEventListener('change', handleVolChange);
+    // Prevent parent from intercepting touch on sliders
+    vol.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    vol.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+
+    // Same for playhead scrubbing
+    const head = li.querySelector('.playhead');
+    head.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    head.addEventListener('touchmove', (e) => e.stopPropagation(), { passive: true });
+
     vol.onmouseup = () => vol.blur();
     const upd = () => { const ti = li.querySelector('.title'); td.title = ti.value; ti.title = td.title; td.artist = li.querySelector('.artist').value; td.notes = li.querySelector('.notes').value; td.isFav = li.querySelector('.star-btn').classList.contains('active'); saveDataOnly(); updateStarredDashboard(); };
     li.querySelectorAll('input:not([type="range"]), textarea').forEach(i => { i.addEventListener('input', (e) => { if(e.target.classList.contains('notes')) { e.target.style.height = 'auto'; e.target.style.height = e.target.scrollHeight + 'px'; } upd(); }); });
@@ -843,7 +935,10 @@
 
   function updateStarredDashboard() {
     const tab = getCurrentTab(), favs = tab.tracks.filter(t => t.isFav);
+    // Freeze scroll position to prevent page jump
+    const scrollY = window.scrollY;
     starredList.innerHTML = favs.map(t => `<li><strong>#${t.currentRank}</strong> — ${t.title} ${t.artist ? 'by '+t.artist : ''}</li>`).join('') || '<li style="color:var(--text-muted)">No starred tracks</li>';
+    requestAnimationFrame(() => window.scrollTo(0, scrollY));
   }
 
   function exportCurrentList() {
